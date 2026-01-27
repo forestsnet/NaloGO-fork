@@ -24,6 +24,7 @@ def generate_device_id() -> str:
 # DeviceInfo is now imported from dto.device
 
 
+
 class AuthProviderImpl(AuthProvider):
     """
     Authentication provider implementation.
@@ -40,6 +41,9 @@ class AuthProviderImpl(AuthProvider):
         base_url: str = "https://lknpd.nalog.ru/api",
         storage_path: str | None = None,
         device_id: str | None = None,
+        proxies: str | dict[str, str] | None = None,  
+        timeout: float = 10.0,
+        **httpx_kwargs: Any,
     ):
         self.base_url_v1 = f"{base_url}/v1"
         self.base_url_v2 = f"{base_url}/v2"
@@ -47,6 +51,11 @@ class AuthProviderImpl(AuthProvider):
         self.device_id = device_id or generate_device_id()
         self.device_info = DeviceInfo(sourceDeviceId=self.device_id)
         self._token_data: dict[str, Any] | None = None
+        
+        # Сохраняем настройки для httpx клиентов
+        self.proxies = proxies
+        self.timeout = timeout
+        self.httpx_kwargs = httpx_kwargs
 
         # Default headers similar to PHP Authenticator
         self.default_headers = {
@@ -59,6 +68,16 @@ class AuthProviderImpl(AuthProvider):
         # Load token from storage if available
         if self.storage_path:
             self._load_token_from_storage()
+            
+    def _get_client_kwargs(self) -> dict[str, Any]:
+        """Получить параметры для создания httpx.AsyncClient с прокси."""
+        kwargs: dict[str, Any] = {
+            "timeout": self.timeout,
+            **self.httpx_kwargs,
+        }
+        if self.proxies is not None:
+            kwargs["proxies"] = self.proxies
+        return kwargs
 
     def _load_token_from_storage(self) -> None:
         """Load token from file storage."""
@@ -130,7 +149,7 @@ class AuthProviderImpl(AuthProvider):
             "deviceInfo": self.device_info.model_dump(),
         }
 
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(**self._get_client_kwargs()) as client:
             response = await client.post(
                 f"{self.base_url_v1}/auth/lkfl",
                 json=request_data,
@@ -165,7 +184,7 @@ class AuthProviderImpl(AuthProvider):
             "requireTpToBeActive": True,
         }
 
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(**self._get_client_kwargs()) as client:
             response = await client.post(
                 f"{self.base_url_v2}/auth/challenge/sms/start",
                 json=request_data,
@@ -202,7 +221,7 @@ class AuthProviderImpl(AuthProvider):
             "deviceInfo": self.device_info.model_dump(),
         }
 
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(**self._get_client_kwargs()) as client:
             response = await client.post(
                 f"{self.base_url_v1}/auth/challenge/sms/verify",
                 json=request_data,
@@ -235,7 +254,7 @@ class AuthProviderImpl(AuthProvider):
         }
 
         try:
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(**self._get_client_kwargs()) as client:
                 response = await client.post(
                     f"{self.base_url_v1}/auth/token",
                     json=request_data,

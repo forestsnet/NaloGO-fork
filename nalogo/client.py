@@ -61,10 +61,14 @@ class Client:
         self.timeout = timeout
 
         # Initialize auth provider
+        # Initialize auth provider (передаем прокси!)
         self.auth_provider = AuthProviderImpl(
             base_url=base_url,
             storage_path=storage_path,
             device_id=device_id,
+            proxies=proxies,
+            timeout=timeout,
+            **httpx_kwargs,
         )
 
         # Initialize HTTP client with auth middleware
