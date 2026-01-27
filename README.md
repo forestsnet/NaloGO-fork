@@ -74,7 +74,25 @@ client = Client(
     storage_path="./tokens.json",           # Файл для токенов
     device_id="my-device-123"               # Кастомный ID устройства
 )
+
+# 🔥 Новое: С SOCKS5 прокси
+client = Client(
+    proxies="socks5://127.0.0.1:1080"       # SOCKS5 прокси
+)
+
+# С авторизацией прокси
+client = Client(
+    proxies="socks5://user:pass@127.0.0.1:1080"
+)
+
+# Рекомендуется использовать context manager
+async with Client(proxies="socks5://127.0.0.1:1080") as client:
+    # Клиент автоматически очистит ресурсы при выходе
+    token = await client.create_new_access_token("inn", "password")
+    await client.authenticate(token)
 ```
+
+> **💡 Для работы с SOCKS5:** `pip install httpx[socks]`
 
 ### 🔐 Аутентификация
 
@@ -309,6 +327,60 @@ client = Client()
 
 # ✅ Рекомендуется - сохранение в файл
 client = Client(storage_path="./secure_tokens.json")
+
+# 🔒 Всегда используйте правильные права доступа
+import os
+os.chmod("./secure_tokens.json", 0o600)  # Только владелец может читать/писать
+```
+
+### 🌐 Работа с прокси (SOCKS5)
+
+Библиотека полностью поддерживает SOCKS5 прокси для всех запросов:
+
+```python
+# Простой SOCKS5
+async with Client(proxies="socks5://127.0.0.1:1080") as client:
+    token = await client.create_new_access_token("inn", "password")
+    await client.authenticate(token)
+
+# С авторизацией
+async with Client(proxies="socks5://user:pass@proxy.example.com:1080") as client:
+    token = await client.create_new_access_token("inn", "password")
+    await client.authenticate(token)
+
+# Разные прокси для HTTP/HTTPS
+async with Client(
+    proxies={
+        "http://": "socks5://127.0.0.1:1080",
+        "https://": "socks5://127.0.0.1:1080"
+    }
+) as client:
+    # ...
+```
+
+**Требование:** Для работы с SOCKS5 установите:
+```bash
+pip install httpx[socks]
+```
+
+### 🔧 Дополнительные настройки httpx
+
+Можно передать любые параметры для `httpx.AsyncClient`:
+
+```python
+async with Client(
+    proxies="socks5://127.0.0.1:1080",
+    timeout=30.0,  # Увеличенный таймаут
+    limits={"max_connections": 100, "max_keepalive_connections": 20},
+    verify=True,   # Проверка SSL сертификатов
+    # transport=custom_transport,  # Кастомный transport
+) as client:
+    # Клиент переиспользует одно соединение для всех запросов
+    # Это эффективнее и работает корректно с прокси
+    pass
+```
+
+См. полный пример: [examples/socks5_example.py](examples/socks5_example.py)
 
 # ✅ Продакшн - переменные окружения
 import os

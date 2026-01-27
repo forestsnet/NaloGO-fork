@@ -36,6 +36,8 @@ class Client:
         storage_path: str | None = None,
         device_id: str | None = None,
         timeout: float = 10.0,
+        proxies: str | dict[str, str] | None = None,
+        **httpx_kwargs: Any,
     ):
         """
         Initialize Moy Nalog API client.
@@ -45,6 +47,15 @@ class Client:
             storage_path: Optional file path for token storage
             device_id: Optional device ID (auto-generated if not provided)
             timeout: HTTP request timeout in seconds
+            proxies: Proxy configuration for httpx (e.g., "socks5://127.0.0.1:1080" 
+                     or {"http://": "...", "https://": "..."})
+            **httpx_kwargs: Additional arguments for httpx.AsyncClient 
+                            (e.g., transport, limits, verify, etc.)
+        
+        Example with SOCKS5 proxy:
+            >>> client = Client(proxies="socks5://127.0.0.1:1080")
+            >>> # or with auth:
+            >>> client = Client(proxies="socks5://user:pass@127.0.0.1:1080")
         """
         self.base_url = base_url
         self.timeout = timeout
@@ -67,10 +78,25 @@ class Client:
                 "Referrer": "https://lknpd.nalog.ru/auth/login",
             },
             timeout=timeout,
+            proxies=proxies,
+            **httpx_kwargs,
         )
 
         # User profile data (for receipt operations)
         self._user_profile: dict[str, Any] | None = None
+
+    async def __aenter__(self) -> "Client":
+        """Context manager entry."""
+        await self.http_client.__aenter__()
+        return self
+
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        """Context manager exit."""
+        await self.http_client.__aexit__(exc_type, exc_val, exc_tb)
+
+    async def close(self) -> None:
+        """Close the client and cleanup resources."""
+        await self.http_client.close()
 
     async def create_new_access_token(self, username: str, password: str) -> str:
         """

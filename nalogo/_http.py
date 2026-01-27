@@ -41,6 +41,9 @@ class AsyncHTTPClient:
         auth_provider: AuthProvider,
         default_headers: dict[str, str] | None = None,
         timeout: float = 10.0,
+        proxies: str | dict[str, str] | None = None,
+        transport: httpx.AsyncBaseTransport | None = None,
+        **httpx_kwargs: Any,
     ):
         self.base_url = base_url
         self.auth_provider = auth_provider
@@ -48,6 +51,42 @@ class AsyncHTTPClient:
         self.timeout = timeout
         self._refresh_lock = asyncio.Lock()
         self.max_retries = 2  # Same as PHP AuthenticationPlugin::RETRY_LIMIT
+        
+        # Create reusable httpx client with custom settings
+        client_kwargs: dict[str, Any] = {
+            "timeout": timeout,
+            **httpx_kwargs,
+        }
+        
+        if proxies is not None:
+            client_kwargs["proxies"] = proxies
+        
+        if transport is not None:
+            client_kwargs["transport"] = transport
+        
+        self._client: httpx.AsyncClient | None = None
+        self._client_kwargs = client_kwargs
+
+    async def __aenter__(self) -> "AsyncHTTPClient":
+        """Initialize httpx client for context manager."""
+        await self._ensure_client()
+        return self
+
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        """Close httpx client on context exit."""
+        await self.close()
+
+    async def _ensure_client(self) -> httpx.AsyncClient:
+        """Ensure httpx client is initialized."""
+        if self._client is None:
+            self._client = httpx.AsyncClient(**self._client_kwargs)
+        return self._client
+
+    async def close(self) -> None:
+        """Close the httpx client and cleanup resources."""
+        if self._client is not None:
+            await self._client.aclose()
+            self._client = None
 
     async def _get_auth_headers(self) -> dict[str, str]:
         """Get authorization headers from current token."""
@@ -109,6 +148,9 @@ class AsyncHTTPClient:
         Raises:
             Domain exceptions via raise_for_status()
         """
+        # Ensure client is initialized
+        client = await self._ensure_client()
+        
         # Prepare headers
         request_headers = self.default_headers.copy()
         auth_headers = await self._get_auth_headers()
@@ -128,22 +170,21 @@ class AsyncHTTPClient:
         if json_data is not None:
             request_kwargs["json"] = json_data
 
-        async with httpx.AsyncClient() as client:
-            # Initial request
-            response = await client.request(**request_kwargs)
+        # Initial request
+        response = await client.request(**request_kwargs)
 
-            # Handle 401 with token refresh (max 1 retry)
-            if response.status_code == HTTPStatus.UNAUTHORIZED:
-                # Build request object for retry
-                request = client.build_request(**request_kwargs)
-                retry_response = await self._handle_401_response(client, request)
-                if retry_response is not None:
-                    response = retry_response
+        # Handle 401 with token refresh (max 1 retry)
+        if response.status_code == HTTPStatus.UNAUTHORIZED:
+            # Build request object for retry
+            request = client.build_request(**request_kwargs)
+            retry_response = await self._handle_401_response(client, request)
+            if retry_response is not None:
+                response = retry_response
 
-            # Check for domain exceptions
-            raise_for_status(response)
+        # Check for domain exceptions
+        raise_for_status(response)
 
-            return response
+        return response
 
     async def get(
         self,
